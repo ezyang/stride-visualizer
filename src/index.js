@@ -51,21 +51,11 @@ function array2d(height, width, f) {
   return Array.from({length: height}, (v, i) => Array.from({length: width}, f ? ((w, j) => f(i, j)) : undefined));
 }
 
-/**
- * The classic convolution output size formula.
- *
- * The derivation for many special cases is worked out in:
- * http://deeplearning.net/software/theano/tutorial/conv_arithmetic.html
- */
-function computeOutputSize(input_size, weight_size, padding, dilation, stride) {
-  return Math.floor((input_size + 2 * padding - dilation * (weight_size - 1) - 1) / stride + 1);
-}
-
-/**
- * Test if a set of parameters is valid.
- */
-function paramsOK(input_size, weight_size, padding, dilation, stride) {
-  return computeOutputSize(input_size, weight_size, padding, dilation, stride) > 0;
+function array3d(depth, height, width, f) {
+  return Array.from({length: depth}, (v, i) =>
+         Array.from({length: height}, (v, j) =>
+         Array.from({length: width},
+          f ? ((w, k) => f(i, j)) : undefined)));
 }
 
 // We use the next two functions (maxWhile and minWhile) to
@@ -98,12 +88,12 @@ function minWhile(start, end, pred) {
   return end;
 }
 
-/**
- * Return the color at 0 <= p <= 1 for the RGB linear interpolation
- * between color (0) and white (1).
- */
-function whiten(color, p) {
-  return d3.interpolateRgb(color, "white")(p)
+function computeNeededSize(view_height, view_width, stride_height, stride_width) {
+  return 1 + (view_height - 1) * stride_height + (view_width - 1) * stride_width;
+}
+
+function paramsOK(storage_height, storage_width, storage_offset, view_height, view_width, stride_height, stride_width) {
+  return computeNeededSize(view_height, view_width, stride_height, stride_width) + storage_offset <= storage_height * storage_width;
 }
 
 /**
@@ -115,11 +105,13 @@ class App extends React.Component {
   constructor(props) {
     super(props);
     this.state = {
-      input_size: 5,
-      weight_size: 3,
-      padding: 0,
-      dilation: 1,
-      stride: 1,
+      storage_height: 4,
+      storage_width: 4,
+      storage_offset: 0,
+      view_height: 4,
+      view_width: 4,
+      stride_height: 4,
+      stride_width: 1,
     };
   }
 
@@ -138,49 +130,13 @@ class App extends React.Component {
   }
 
   render() {
-    const input_size = this.state.input_size;
-    const weight_size = this.state.weight_size;
-    const padding = this.state.padding;
-    const dilation = this.state.dilation;
-    const stride = this.state.stride;
-    const padded_input_size = input_size + padding * 2;
-
-    // TODO: transposed convolution
-
-    const output_size = computeOutputSize(input_size, weight_size, padding, dilation, stride);
-
-    // Compute the convolution symbolically.
-
-    // output[output_height][output_width] =
-    //    symbolic expression s for this cell, where
-    //    s[kernel_height][kernel_width] =
-    //      the flat input index multiplied against this kernel entry
-    //      (undefined if this entry not used)
-    //
-    // Recall: the flat input index for (i, j) in a square matrix is 'i * size + j'
-    const output = array2d(output_size, output_size, (i, j) => array2d(weight_size, weight_size));
-
-    for (let h_out = 0; h_out < output_size; h_out++) {
-      for (let w_out = 0; w_out < output_size; w_out++) {
-        for (let h_kern = 0; h_kern < weight_size; h_kern++) {
-          for (let w_kern = 0; w_kern < weight_size; w_kern++) {
-            // NB: We purposely don't apply padding here, this is
-            // handled at render time.
-            const h_im = h_out * stride + h_kern * dilation;
-            const w_im = w_out * stride + w_kern * dilation;
-            output[h_out][w_out][h_kern][w_kern] = h_im * padded_input_size + w_im;
-          }
-        }
-      }
-    }
-
-    // Make an extended params dictionary with our new computed values
-    // to pass to the inner component.
-    const params = Object.assign({
-      padded_input_size: padded_input_size,
-      output_size: output_size,
-      output: output,
-    }, this.state);
+    const storage_height = this.state.storage_height;
+    const storage_width = this.state.storage_width;
+    const storage_offset = this.state.storage_offset;
+    const view_height = this.state.view_height;
+    const view_width = this.state.view_width;
+    const stride_height = this.state.stride_height;
+    const stride_width = this.state.stride_width;
 
     const onChange = (state_key) => {
       return (e) => {
@@ -193,70 +149,67 @@ class App extends React.Component {
       };
     };
 
-    // An arbitrary constant I found aesthetically pleasing.
-    const max_input_size = 16;
+    const max_storage = 64;
+    const max_size = 8;
+    const max_stride = 8;
 
     return (
       <div>
-        <h1>Convolution Visualizer</h1>
+        <h1>Stride Visualizer</h1>
         <div className="author">Edward Z. Yang</div>
         <p>
-          This interactive visualization demonstrates how various convolution parameters
-          affect shapes and data dependencies between the input, weight and
-          output matrices.  Hovering over an input/output will highlight the
-          corresponding output/input, while hovering over an weight
-          will highlight which inputs were multiplied into that weight to
-          compute an output.  (Strictly speaking, the operation visualized
-          here is a <em>correlation</em>, not a convolution, as a true
-          convolution flips its weights before performing a correlation.
-          However, most deep learning frameworks still call these convolutions,
-          and in the end it's all the same to gradient descent.)
+          Strides.
         </p>
         <form className="form">
           <fieldset>
-            <legend>Input size:</legend>
-            <Slider min={minWhile(max_input_size, 1, (x) => paramsOK(x, weight_size, padding, dilation, stride))}
-                    max={max_input_size}
-                    value={input_size}
-                    onChange={onChange("input_size")}
+            <legend>Storage size:</legend>
+            <Slider min={minWhile(max_storage, 1, (x) => paramsOK(x, storage_width, storage_offset, view_height, view_width, stride_height, stride_width))}
+                    max={max_storage}
+                    value={storage_height}
+                    onChange={onChange("storage_height")}
+                    />
+            <Slider min={minWhile(max_storage, 1, (x) => paramsOK(storage_height, x, storage_offset, view_height, view_width, stride_height, stride_width))}
+                    max={max_storage}
+                    value={storage_width}
+                    onChange={onChange("storage_width")}
                     />
           </fieldset>
           <fieldset>
-            <legend>Kernel size:</legend>
-            <Slider min="1"
-                    max={maxWhile(1, 100, (x) => paramsOK(input_size, x, padding, dilation, stride))}
-                    value={weight_size}
-                    onChange={onChange("weight_size")}
+            <legend>Storage offset:</legend>
+            <Slider min={0}
+                    max={maxWhile(0, storage_height * storage_width, (x) => paramsOK(storage_height, storage_width, x, view_height, view_width, stride_height, stride_width))}
+                    value={storage_offset}
+                    onChange={onChange("storage_offset")}
                     />
           </fieldset>
           <fieldset>
-            <legend>Padding:</legend>
-            <Slider min={minWhile(dilation*(weight_size-1), 0,
-                                  (x) => paramsOK(input_size, weight_size, x, dilation, stride))}
-                    max={dilation*(weight_size-1)}
-                    value={padding}
-                    onChange={onChange("padding")}
+            <legend>View size:</legend>
+            <Slider min={0}
+                    max={maxWhile(0, max_size, (x) => paramsOK(storage_height, storage_width, storage_offset, x, view_width, stride_height, stride_width))}
+                    value={view_height}
+                    onChange={onChange("view_height")}
+                    />
+            <Slider min={0}
+                    max={maxWhile(0, max_size, (x) => paramsOK(storage_height, storage_width, storage_offset, view_height, x, stride_height, stride_width))}
+                    value={view_width}
+                    onChange={onChange("view_width")}
                     />
           </fieldset>
           <fieldset>
-            <legend>Dilation:</legend>
-            <Slider min="1"
-                    max={maxWhile(1, 100, (x) => paramsOK(input_size, weight_size, padding, x, stride))}
-                    value={dilation}
-                    onChange={onChange("dilation")}
-                    disabled={weight_size === 1}
+            <legend>View stride:</legend>
+            <Slider min={0}
+                    max={maxWhile(0, max_stride, (x) => paramsOK(storage_height, storage_width, storage_offset, view_height, view_width, x, stride_width))}
+                    value={stride_height}
+                    onChange={onChange("stride_height")}
                     />
-          </fieldset>
-          <fieldset>
-            <legend>Stride:</legend>
-            <Slider min="1"
-                    max={Math.max(input_size-dilation*(weight_size-1), 1)}
-                    value={stride}
-                    onChange={onChange("stride")}
+            <Slider min={0}
+                    max={maxWhile(0, max_stride, (x) => paramsOK(storage_height, storage_width, storage_offset, view_height, view_width, stride_height, x))}
+                    value={stride_width}
+                    onChange={onChange("stride_width")}
                     />
           </fieldset>
         </form>
-        <Viewport {...params} />
+        <Viewport {...this.state} />
       </div>
     );
   }
@@ -264,7 +217,7 @@ class App extends React.Component {
 
 /**
  * The viewport into the actual meat of the visualization, the
- * matrices.  This component controls the state for hovering
+ * tensors.  This component controls the state for hovering
  * and the animation.
  */
 class Viewport extends React.Component {
@@ -290,20 +243,20 @@ class Viewport extends React.Component {
     this.setState({counter: this.state.counter + 1});
   }
   componentDidMount() {
-    this.interval = setInterval(this.tick.bind(this), 1000);  // 1 second
+    this.interval = setInterval(this.tick.bind(this), 500);  // 0.5 second
   }
   componentWillUnmount() {
     clearInterval(this.interval);
   }
 
   render() {
-    const input_size = this.props.input_size;
-    const padded_input_size = this.props.padded_input_size;
-    const weight_size = this.props.weight_size;
-    const output_size = this.props.output_size;
-    const output = this.props.output;
-    const padding = this.props.padding;
-    const stride = this.props.stride;
+    const storage_height = this.props.storage_height;
+    const storage_width = this.props.storage_width;
+    const storage_offset = this.props.storage_offset;
+    const view_height = this.props.view_height;
+    const view_width = this.props.view_width;
+    const stride_height = this.props.stride_height;
+    const stride_width = this.props.stride_width;
 
     let hoverOver = this.state.hoverOver;
     let hoverH = this.state.hoverH;
@@ -314,98 +267,54 @@ class Viewport extends React.Component {
     //
     //    colorizer(i, j) = color of the cell at i, j
     //
-    let inputColorizer = undefined;
-    let weightColorizer = undefined;
-    let outputColorizer = undefined;
-
-    // After colorizing an input cell, apply darkening if the cell falls
-    // within the padding.  This function is responsible for rendering
-    // the dark padding border; if you replace this with a passthrough
-    // to f no dark padding border will be rendered.
-    function inputColorizerWrapper(f) {
-      return (i, j) => {
-        let r = f(i, j);
-        if (typeof r === "undefined") {
-          r = d3.color("white");
-        } else {
-          r = d3.color(r);
-        }
-        if (i < padding || i >= input_size + padding || j < padding || j >= input_size + padding) {
-          r = r.darker(2.5);
-        }
-        return r;
-      };
-    }
+    let storageColorizer = undefined;
+    let viewColorizer = undefined;
 
     // Given the animation timestep, determine the output coordinates
     // of our animated stencil.
-    const flat_animated = this.state.counter % (output_size * output_size);
-    const animatedH = Math.floor(flat_animated / output_size);
-    const animatedW = flat_animated % output_size;
+    const animatedH = this.state.counter % view_height;
+
+    // Don't have a good thing for this yet
+    if (hoverOver === "storage") hoverOver = false;
 
     // If the user is not hovering over any matrix, render "as if"
     // they were hovering over the animated output coordinate.
     if (!hoverOver) {
       hoverOver = "output";
       hoverH = animatedH;
-      hoverW = animatedW;
+      hoverW = undefined;
     }
 
-    // If the user is hovering over the input matrix, render "as if'
-    // they were hovering over the output coordinate, such that the
-    // top-left corner of the stencil is attached to the cursor.
-    if (hoverOver === "input") {
-      hoverOver = "output";
-      hoverH = Math.min(Math.floor(hoverH / stride), output_size - 1);
-      hoverW = Math.min(Math.floor(hoverW / stride), output_size - 1);
-    }
+    const scale = d3.scaleSequential(d3.interpolateLab('#d7191c', '#2c7bb6')).domain([0, view_width])
 
-    // Generate the color interpolator for generating the kernels.
-    // This particular scale was found via experimentation with various
-    // start/endpoints and different interpolation schemes.  For more
-    // documentation on these D3 functions, see:
-    //
-    //  - https://github.com/d3/d3-interpolate
-    //  - https://github.com/d3/d3-color
-    //
-    // Some notes on what I was going for, from an aesthetic perspective:
-    //
-    //  - The most important constraint is that all colors produced by the
-    //    interpolator need to be saturated enough so they are not confused
-    //    with the "animation" shadow.
-    //  - I wanted the interpolation to be smooth, despite this being a
-    //    discrete setting where an ordinal color scheme could be
-    //    employed.  (Also I couldn't get the color schemes to work lol.)
-    //
-    // If you are a visualization expert and have a pet 2D color
-    // interpolation scheme, please try swapping it in here and seeing
-    // how it goes.
-    const scale_size = weight_size;
-    const xScale = d3.scaleSequential(d3.interpolateLab('#d7191c', '#2c7bb6')).domain([-1, scale_size])
-    const yScale = d3.scaleSequential(d3.interpolateLab('#d7191c', d3.color('#1a9641').brighter(1))).domain([-1, scale_size])
-    function xyScale(i, j) {
-      return d3.color(d3.interpolateLab(xScale(i), yScale(j))((j-i) / (scale_size-1)));
-    }
+    /*
+    // The easy colorizers
+    storageColorizer = (i, j) => {
+      return xyScale(i, j);
+    };
 
-    // Given an output coordinate 'hoverH, hoverW', compute a mapping
-    // from inputs to the weight coordinates which multiplied with
-    // that input.
-    //
-    // Result:
-    //    r[input_height][input_width] = [weight_height, weight_width]
-    function compute_input_multiplies_with_weight(hoverH, hoverW) {
-      const input_multiplies_with_weight = array1d(padded_input_size * padded_input_size);
-      for (let h_weight = 0; h_weight < weight_size; h_weight++) {
-        for (let w_weight = 0; w_weight < weight_size; w_weight++) {
-          const flat_input = output[hoverH][hoverW][h_weight][w_weight];
-          if (typeof flat_input === "undefined") continue;
-          input_multiplies_with_weight[flat_input] = [h_weight, w_weight];
+    viewColorizer = (i, j) => {
+      const loc = storage_offset + i * stride_height + j * stride_width;
+      return xyScale(Math.floor(loc / storage_width), loc % storage_width);
+    };
+    */
+
+    if (hoverOver === "output" || true) {
+      storageColorizer = (i, j) => {
+        const flat = i * storage_width + j;
+        for (let k = 0; k < view_width; k++) {
+          if (hoverH * stride_height + k * stride_width + storage_offset === flat) return scale(k);
         }
+        return "white";
       }
-      return input_multiplies_with_weight;
+      viewColorizer = (i, j) => {
+        if (hoverH !== i) return "white";
+        return scale(stride_width ? j : 0);
+      };
     }
 
     // The user is hovering over the output matrix (or the input matrix)
+    /*
     if (hoverOver === "output") {
       outputColorizer = (i, j) => {
         const base = d3.color('#666')
@@ -518,15 +427,16 @@ class Viewport extends React.Component {
         return color;
       };
     }
+    */
 
     return (
       <div className="viewport">
         <div className="grid-container">
-          Input ({input_size} × {input_size}):
-          <Grid size={input_size + 2 * padding}
-                colorizer={inputColorizer}
+          Storage ({storage_height} × {storage_width}):
+          <Grid height={storage_height} width={storage_width}
+                colorizer={storageColorizer}
                 onMouseEnter={(e, i, j) => {
-                  this.setState({hoverOver: "input", hoverH: i, hoverW: j});
+                  this.setState({hoverOver: "storage", hoverH: i, hoverW: j});
                 }}
                 onMouseLeave={(e, i, j) => {
                   this.setState({hoverOver: undefined, hoverH: undefined, hoverW: undefined});
@@ -534,23 +444,11 @@ class Viewport extends React.Component {
                 />
         </div>
         <div className="grid-container">
-          Weight ({weight_size} × {weight_size}):
-          <Grid size={weight_size}
-                colorizer={weightColorizer}
+          View ({view_height} × {view_width}):
+          <Grid height={view_height} width={view_width}
+                colorizer={viewColorizer}
                 onMouseEnter={(e, i, j) => {
-                  this.setState({hoverOver: "weight", hoverH: i, hoverW: j});
-                }}
-                onMouseLeave={(e, i, j) => {
-                  this.setState({hoverOver: undefined, hoverH: undefined, hoverW: undefined});
-                }}
-                />
-        </div>
-        <div className="grid-container">
-          Output ({output_size} × {output_size}):
-          <Grid size={output_size}
-                colorizer={outputColorizer}
-                onMouseEnter={(e, i, j) => {
-                  this.setState({hoverOver: "output", hoverH: i, hoverW: j});
+                  this.setState({hoverOver: "view", hoverH: i, hoverW: j});
                 }}
                 onMouseLeave={(e, i, j) => {
                   this.setState({hoverOver: undefined, hoverH: undefined, hoverW: undefined});
@@ -563,10 +461,11 @@ class Viewport extends React.Component {
 }
 
 /**
- * A square matrix grid which we render our matrix animations.
+ * A matrix grid which we render our matrix animations.
  *
  * Properties:
- *    - size: The height/width of the matrix
+ *    - height: height of the matrix
+ *    - width: widht of the matrix
  *    - colorizer: A function f(i, j), returning the color of the i,j cell
  *    - onMouseEnter: A callback invoked f(event, i, j) when the i,j cell is
  *                    entered by a mouse.
@@ -574,8 +473,9 @@ class Viewport extends React.Component {
  *                    left by a mouse.
  */
 function Grid(props) {
-  const size = parseInt(props.size, 10);
-  const grid = array2d(size, size);
+  const height = parseInt(props.height, 10);
+  const width = parseInt(props.width, 10);
+  const grid = array2d(height, width);
   const xgrid = grid.map((row, i) => {
     const xrow = row.map((e, j) => {
       // Use of colorizer this way means we force recompute of all tiles
