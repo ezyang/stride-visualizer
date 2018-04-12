@@ -127,14 +127,14 @@ class App extends React.Component {
   // instead we manually save/load our state from localStorage.
 
   componentDidMount() {
-    const state = localStorage.getItem("state");
+    const state = localStorage.getItem("stride-visualizer");
     if (state) {
       this.setState(JSON.parse(state));
     }
   }
 
   componentDidUpdate() {
-    localStorage.setItem("state", JSON.stringify(this.state));
+    localStorage.setItem("stride-visualizer", JSON.stringify(this.state));
   }
 
   render() {
