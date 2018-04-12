@@ -1,5 +1,5 @@
 {
-  "name": "convolution-visualizer",
+  "name": "stride-visualizer",
   "version": "0.1.0",
   "private": true,
   "dependencies": {
@@ -10,7 +10,7 @@
     "react-dom": "^16.2.0",
     "react-scripts": "1.1.1"
   },
-  "homepage": "https://ezyang.github.io/convolution-visualizer",
+  "homepage": "https://ezyang.github.io/stride-visualizer",
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
