@@ -88,20 +88,32 @@ function minWhile(start, end, pred) {
   return end;
 }
 
-function paramsOK(storage_height, storage_width, storage_offset, view_height, view_width, stride_height, stride_width) {
-  // I'm annoyed a special case is needed for zero size...
-  if (view_height == 0 || view_width == 0) return true;
+function watermarks(view_height, view_width, stride_height, stride_width) {
+  // NB: both of these watermarks are INCLUSIVE
+  // For example, if all strides are 0, we get [0, 0], which is true, we
+  // will access the memory at 0.
+  // NB: this does the RIGHT THING when height/width is zero.  Then high
+  // watermark is negative while low watermark is zero, meaning the
+  // empty range, which is precisely correct.
 
-  let high_watermark = storage_offset;
+  let high_watermark = 0;
   if (stride_height > 0) high_watermark += (view_height - 1) * stride_height;
   if (stride_width > 0) high_watermark += (view_width - 1) * stride_width;
 
-  let low_watermark = storage_offset;
-  if (stride_height < 0) high_watermark += (view_height - 1) * stride_height;
-  if (stride_width < 0) high_watermark += (view_width - 1) * stride_width;
+  let low_watermark = 0;
+  if (stride_height < 0) low_watermark += (view_height - 1) * stride_height;
+  if (stride_width < 0) low_watermark += (view_width - 1) * stride_width;
+
+  return [low_watermark, high_watermark];
+}
+
+function paramsOK(storage_height, storage_width, storage_offset, view_height, view_width, stride_height, stride_width) {
+  const wms = watermarks(view_height, view_width, stride_height, stride_width);
+
+  if (wms[1] < wms[0]) return true;
 
   const storage_size = storage_height * storage_width;
-  return low_watermark >= 0 && high_watermark < storage_size;
+  return wms[0] + storage_offset >= 0 && wms[1] + storage_offset < storage_size;
 }
 
 /**
@@ -194,8 +206,9 @@ class App extends React.Component {
           </fieldset>
           <fieldset>
             <legend>Storage offset:</legend>
-            <Slider min={0}
-                    max={maxWhile(0, storage_height * storage_width, (x) => paramsOK(storage_height, storage_width, x, view_height, view_width, stride_height, stride_width))}
+            { /* These formulas don't handle the size = 0 boundary case correctly */ }
+            <Slider min={Math.max(0, -watermarks(view_height, view_width, stride_height, stride_width)[0])}
+                    max={storage_height * storage_width - Math.max(0, watermarks(view_height, view_width, stride_height, stride_width)[1]) - 1}
                     value={storage_offset}
                     onChange={onChange("storage_offset")}
                     />
@@ -215,13 +228,13 @@ class App extends React.Component {
           </fieldset>
           <fieldset>
             <legend>View stride:</legend>
-            <Slider min={minWhile(-max_stride, -max_stride, (x) => paramsOK(storage_height, storage_width, storage_offset, view_height, view_width, x, stride_width))}
-                    max={maxWhile(-max_stride, max_stride, (x) => paramsOK(storage_height, storage_width, storage_offset, view_height, view_width, x, stride_width))}
+            <Slider min={minWhile(0, -max_stride, (x) => paramsOK(storage_height, storage_width, storage_offset, view_height, view_width, x, stride_width))}
+                    max={maxWhile(0, max_stride, (x) => paramsOK(storage_height, storage_width, storage_offset, view_height, view_width, x, stride_width))}
                     value={stride_height}
                     onChange={onChange("stride_height")}
                     />
-            <Slider min={minWhile(-max_stride, -max_stride, (x) => paramsOK(storage_height, storage_width, storage_offset, view_height, view_width, stride_height, x))}
-                    max={maxWhile(-max_stride, max_stride, (x) => paramsOK(storage_height, storage_width, storage_offset, view_height, view_width, stride_height, x))}
+            <Slider min={minWhile(0, -max_stride, (x) => paramsOK(storage_height, storage_width, storage_offset, view_height, view_width, stride_height, x))}
+                    max={maxWhile(0, max_stride, (x) => paramsOK(storage_height, storage_width, storage_offset, view_height, view_width, stride_height, x))}
                     value={stride_width}
                     onChange={onChange("stride_width")}
                     />
