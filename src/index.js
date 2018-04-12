@@ -17,7 +17,7 @@ import './index.css';
 function Slider(props) {
   const max = parseInt(props.max, 10);
   const min = parseInt(props.min, 10);
-  const maxLength = max ? Math.ceil(Math.log10(max)) : 1;
+  const maxLength = max ? Math.ceil(Math.log10(Math.abs(max))) : 1;
   const disabled = props.disabled || min >= max;
   return (
     <span className="slider">
@@ -88,12 +88,20 @@ function minWhile(start, end, pred) {
   return end;
 }
 
-function computeNeededSize(view_height, view_width, stride_height, stride_width) {
-  return 1 + (view_height - 1) * stride_height + (view_width - 1) * stride_width;
-}
-
 function paramsOK(storage_height, storage_width, storage_offset, view_height, view_width, stride_height, stride_width) {
-  return computeNeededSize(view_height, view_width, stride_height, stride_width) + storage_offset <= storage_height * storage_width;
+  // I'm annoyed a special case is needed for zero size...
+  if (view_height == 0 || view_width == 0) return true;
+
+  let high_watermark = storage_offset;
+  if (stride_height > 0) high_watermark += (view_height - 1) * stride_height;
+  if (stride_width > 0) high_watermark += (view_width - 1) * stride_width;
+
+  let low_watermark = storage_offset;
+  if (stride_height < 0) high_watermark += (view_height - 1) * stride_height;
+  if (stride_width < 0) high_watermark += (view_width - 1) * stride_width;
+
+  const storage_size = storage_height * storage_width;
+  return low_watermark >= 0 && high_watermark < storage_size;
 }
 
 /**
@@ -158,8 +166,18 @@ class App extends React.Component {
         <h1>Stride Visualizer</h1>
         <div className="author">Edward Z. Yang</div>
         <p>
-          Strides.
+          Strides specify a factor by which an index is multiplied when computing its
+          index into an array.  Strides are surprisingly versatile and can be used
+          to program a large number of access patterns:
         </p>
+        <ul>
+          <li>Contiguous: each stride is the product of the corresponding tail of sizes</li>
+          <li>Broadcasting: stride is zero</li>
+          <li>Transpose: strides are swapped</li>
+          <li>Flip: negative strides (storage offset must be adjusted accordingly)</li>
+          <li>Diagonal: stride is one greater than size</li>
+          <li>Rolling window: stride is less than size</li>
+        </ul>
         <form className="form">
           <fieldset>
             <legend>Storage size:</legend>
@@ -197,13 +215,13 @@ class App extends React.Component {
           </fieldset>
           <fieldset>
             <legend>View stride:</legend>
-            <Slider min={0}
-                    max={maxWhile(0, max_stride, (x) => paramsOK(storage_height, storage_width, storage_offset, view_height, view_width, x, stride_width))}
+            <Slider min={minWhile(-max_stride, -max_stride, (x) => paramsOK(storage_height, storage_width, storage_offset, view_height, view_width, x, stride_width))}
+                    max={maxWhile(-max_stride, max_stride, (x) => paramsOK(storage_height, storage_width, storage_offset, view_height, view_width, x, stride_width))}
                     value={stride_height}
                     onChange={onChange("stride_height")}
                     />
-            <Slider min={0}
-                    max={maxWhile(0, max_stride, (x) => paramsOK(storage_height, storage_width, storage_offset, view_height, view_width, stride_height, x))}
+            <Slider min={minWhile(-max_stride, -max_stride, (x) => paramsOK(storage_height, storage_width, storage_offset, view_height, view_width, stride_height, x))}
+                    max={maxWhile(-max_stride, max_stride, (x) => paramsOK(storage_height, storage_width, storage_offset, view_height, view_width, stride_height, x))}
                     value={stride_width}
                     onChange={onChange("stride_width")}
                     />

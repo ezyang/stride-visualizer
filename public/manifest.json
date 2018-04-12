@@ -1,6 +1,6 @@
 {
-  "short_name": "Convolution Visualizer",
-  "name": "Convolution Visualizer",
+  "short_name": "Stride Visualizer",
+  "name": "Stride Visualizer",
   "icons": [
     {
       "src": "favicon.ico",
